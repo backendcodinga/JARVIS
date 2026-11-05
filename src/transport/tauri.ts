@@ -17,9 +17,12 @@ import type { Settings } from "../types/generated/Settings";
 import type { SettingsPatch } from "../types/generated/SettingsPatch";
 import type { Snapshot } from "../types/generated/Snapshot";
 import type { SpotifyStatus } from "../types/generated/SpotifyStatus";
+import type { ModelProgress } from "../types/generated/ModelProgress";
+import type { Transcript } from "../types/generated/Transcript";
 import type { TurnInterrupted } from "../types/generated/TurnInterrupted";
 import type { TurnStreamEvent } from "../types/generated/TurnStreamEvent";
 import type { UsageSummary } from "../types/generated/UsageSummary";
+import type { VoiceStatus } from "../types/generated/VoiceStatus";
 import type {
   SnapshotListener,
   Transport,
@@ -28,6 +31,8 @@ import type {
   InterruptListener,
   ActivityListener,
   MemoryListener,
+  TranscriptListener,
+  ModelProgressListener,
 } from "./index";
 
 export const SNAPSHOT_EVENT = "state_snapshot";
@@ -35,6 +40,8 @@ export const USAGE_EVENT = "usage_updated";
 export const INTERRUPT_EVENT = "turn_interrupted";
 export const ACTIVITY_EVENT = "activity_appended";
 export const MEMORY_PROPOSED_EVENT = "memory_proposed";
+export const TRANSCRIPT_FINAL_EVENT = "transcript_final";
+export const MODELS_PROGRESS_EVENT = "voice_models_progress";
 
 export class TauriTransport implements Transport {
   readonly isMock = false;
@@ -180,6 +187,44 @@ export class TauriTransport implements Transport {
 
   cancel(requestId: string): Promise<void> {
     return invoke("cancel", { requestId });
+  }
+
+  voiceStatus(): Promise<VoiceStatus> {
+    return invoke<VoiceStatus>("voice_status");
+  }
+
+  voiceModelsInstall(): Promise<VoiceStatus> {
+    return invoke<VoiceStatus>("voice_models_install");
+  }
+
+  onModelsProgress(listener: ModelProgressListener): () => void {
+    return subscribe<ModelProgress>(
+      MODELS_PROGRESS_EVENT,
+      "voice.models_progress",
+      listener,
+    );
+  }
+
+  voiceAttach(onEvent: TurnListener): Promise<void> {
+    const channel = new Channel<TurnStreamEvent>();
+    channel.onmessage = onEvent;
+    return invoke("voice_attach", { onEvent: channel });
+  }
+
+  voiceCaptureStart(): Promise<void> {
+    return invoke("voice_capture_start");
+  }
+
+  voiceCaptureStop(): Promise<void> {
+    return invoke("voice_capture_stop");
+  }
+
+  onTranscriptFinal(listener: TranscriptListener): () => void {
+    return subscribe<Transcript>(
+      TRANSCRIPT_FINAL_EVENT,
+      "transcript.final",
+      listener,
+    );
   }
 
   submitText(text: string, onEvent: TurnListener): Promise<string> {

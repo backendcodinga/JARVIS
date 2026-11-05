@@ -27,7 +27,7 @@ regex = "1.13.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json"] }
 ts-rs = "12.0.1"
 uuid = { version = "1.29.0", features = ["v7"] }
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time", "net", "io-util", "fs"] }
 tokio-util = "0.7.20"
 futures = "0.3.34"
 async-trait = "0.1.92"
@@ -49,6 +49,21 @@ cpal = "0.15"
 # Lock-free single-producer single-consumer ring between the audio callback and the voice thread,
 # audio/capture.rs (MIT OR Apache-2.0, no dependencies): nothing allocates or locks in the callback.
 rtrb = "0.4"
+# The speech engine (D-26): Moonshine speech-to-text on the CPU through ONNX Runtime, voice/sherpa.rs
+# (Apache-2.0). Its build downloads the prebuilt native library from the project's GitHub release.
+sherpa-onnx = "2.0.1"
+# Unpack the speech model archive (.tar.bz2) after its checksum is verified, voice/models.rs. Both are
+# already in the build (sherpa-onnx's build script uses them), so no new package: tar is MIT OR Apache-2.0,
+# bzip2 is MIT OR Apache-2.0 (its C library is bzip2-1.0.6, added to the allow-list in D-01 for #107).
+tar = "0.4"
+bzip2 = "0.4"
+# The wake word's ONNX Runtime download is a .tgz (Linux, macOS) and a .zip (Windows), voice/models.rs.
+# Both are already in the build (sherpa-onnx's build script uses them): flate2 is MIT OR Apache-2.0, zip is MIT.
+flate2 = "1"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+# ONNX Runtime for the openWakeWord wake word ONLY (D-29), wake/oww.rs (MIT OR Apache-2.0). `load-dynamic`:
+# nothing is linked; the runtime library is the one the model manager downloaded and verified.
+ort = { version = "2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-31"] }
 
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -60,6 +75,9 @@ plist = "1.10.3"
 libc = "0.2.191"
 
 [target.'cfg(windows)'.dependencies]
+# Opens the wake word's ONNX Runtime library with a restricted search path, platform/dll.rs (ISC; already
+# in the build as a dependency of ort, so no new package).
+libloading = "0.9"
 # MoveFileExW without REPLACE_EXISTING for no-overwrite moves (platform/fs.rs) and the system
 # volume keys (platform/media.rs).
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_System_Registry", "Win32_UI_Input_KeyboardAndMouse"] }

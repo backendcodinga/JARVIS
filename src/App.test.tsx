@@ -1,7 +1,12 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async () => undefined),
+  Channel: class {
+    onmessage: (m: unknown) => void = () => {};
+  },
+}));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
 
 import App from "./App";
@@ -75,6 +80,7 @@ describe("App keyboard controls", () => {
   it("shows an alert when a command fails on the real backend", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "voice_attach") return;
       if (cmd === "ping")
         return { pong: true, protocolVersion: 1, appVersion: "t" };
       if (cmd === "get_snapshot")
@@ -432,5 +438,93 @@ describe("App panels (issue #37)", () => {
     ).not.toContainElement(card);
     expect(screen.getByRole("button", { name: "Deny" })).toBeEnabled();
     vi.useRealTimers();
+  });
+});
+
+describe("App push to talk", () => {
+  beforeEach(() => {
+    useSnapshotStore.setState({ snapshot: null });
+    useChatStore.setState({ turns: [], pendingInterrupts: {} });
+  });
+
+  it("holding the button listens, and releasing puts the heard words and the reply in the conversation", async () => {
+    vi.useFakeTimers();
+    const t = new MockTransport();
+    render(<App transport={t} />);
+    await act(async () => {});
+    const talk = screen.getByRole("button", { name: /talk/i });
+
+    await act(async () => {
+      fireEvent.pointerDown(talk);
+    });
+    expect(screen.getByTestId("phase")).toHaveAttribute(
+      "data-phase",
+      "listening",
+    );
+    // Listening at once, but the device is still opening: not capturing yet.
+    expect(screen.getByTestId("mic")).toHaveAttribute("data-mic", "off");
+    expect(talk).toHaveTextContent("Starting microphone…");
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(screen.getByTestId("mic")).toHaveAttribute("data-mic", "capturing");
+    expect(talk).toHaveTextContent("Speak now");
+
+    await act(async () => {
+      fireEvent.pointerUp(talk);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(
+      screen.getAllByText(/MOCK: nothing was heard/).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText(/MOCK reply, not a model/)).toBeInTheDocument();
+    expect(screen.getByTestId("mic")).toHaveAttribute("data-mic", "off");
+    vi.useRealTimers();
+  });
+
+  it("a quick tap keeps listening and ends by itself when speech ends", async () => {
+    vi.useFakeTimers();
+    const t = new MockTransport();
+    render(<App transport={t} />);
+    await act(async () => {});
+    const talk = screen.getByRole("button", { name: /talk/i });
+
+    await act(async () => {
+      fireEvent.pointerDown(talk);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+      fireEvent.pointerUp(talk);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    // Still listening: nothing was sent on the release.
+    expect(screen.getByTestId("phase")).toHaveAttribute(
+      "data-phase",
+      "listening",
+    );
+    expect(talk).toHaveTextContent("press to send");
+
+    await act(async () => {
+      vi.advanceTimersByTime(8000);
+    });
+    expect(
+      screen.getAllByText(/MOCK: nothing was heard/).length,
+    ).toBeGreaterThan(0);
+    expect(talk).toHaveTextContent("Hold or tap to talk");
+    vi.useRealTimers();
+  });
+
+  it("cannot be used while the microphone is muted", async () => {
+    const t = new MockTransport();
+    render(<App transport={t} />);
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "M", ctrlKey: true, shiftKey: true });
+    });
+    expect(screen.getByRole("button", { name: /talk/i })).toBeDisabled();
   });
 });

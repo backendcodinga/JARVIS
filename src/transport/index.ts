@@ -12,8 +12,11 @@ import type { Settings } from "../types/generated/Settings";
 import type { SettingsPatch } from "../types/generated/SettingsPatch";
 import type { Snapshot } from "../types/generated/Snapshot";
 import type { SpotifyStatus } from "../types/generated/SpotifyStatus";
+import type { Transcript } from "../types/generated/Transcript";
 import type { TurnInterrupted } from "../types/generated/TurnInterrupted";
 import type { TurnStreamEvent } from "../types/generated/TurnStreamEvent";
+import type { VoiceStatus } from "../types/generated/VoiceStatus";
+import type { ModelProgress } from "../types/generated/ModelProgress";
 import type { UsageSummary } from "../types/generated/UsageSummary";
 
 export type SnapshotListener = (snapshot: Snapshot) => void;
@@ -22,6 +25,8 @@ export type UsageListener = (usage: UsageSummary) => void;
 export type InterruptListener = (e: TurnInterrupted) => void;
 export type ActivityListener = (e: ActivityEntry) => void;
 export type MemoryListener = (m: Memory) => void;
+export type ModelProgressListener = (p: ModelProgress) => void;
+export type TranscriptListener = (t: Transcript) => void;
 
 /** One interface, two implementations: TauriTransport and MockTransport. */
 export interface Transport {
@@ -83,6 +88,30 @@ export interface Transport {
   onActivity(listener: ActivityListener): () => void;
   /** `usage.updated` broadcasts. Returns an unsubscribe function. */
   onUsage(listener: UsageListener): () => void;
+
+  // Voice (M3, docs/contracts.md "Voice"). Audio never reaches the window: only text.
+  /**
+   * Contract `voice_attach`: called once at start-up. Turns that start from the microphone stream
+   * their reply on `onEvent` (the same events as `submitText`, ending with one `done`).
+   */
+  voiceAttach(onEvent: TurnListener): Promise<void>;
+  /** Contract `voice_capture_start`: push to talk, key down. Refused until `voiceAttach`. */
+  voiceCaptureStart(): Promise<void>;
+  /** Contract `voice_capture_stop`: key up. Safe when nothing is capturing. */
+  voiceCaptureStop(): Promise<void>;
+  /** `transcript.final`: the words heard; they open the voice turn the attached channel then streams. */
+  onTranscriptFinal(listener: TranscriptListener): () => void;
+
+  /** Contract `voice_status`: text and settings only; `modelsReady` is read from disk each time. */
+  voiceStatus(): Promise<VoiceStatus>;
+  /**
+   * Contract `voice_models_install`: downloads and verifies the speech models. Resolves when
+   * every file is verified; progress arrives on `onModelsProgress`. An interrupted download
+   * resumes on the next call. One download at a time.
+   */
+  voiceModelsInstall(): Promise<VoiceStatus>;
+  /** `voice.models_progress`: bytes of the archive done so far, at most every 250 ms. */
+  onModelsProgress(listener: ModelProgressListener): () => void;
 
   // Spotify (music step 2, docs/contracts.md "Spotify"). No call ever returns a token.
   /** Contract `spotify_status`: the saved Client ID and whether a sign-in is held. */

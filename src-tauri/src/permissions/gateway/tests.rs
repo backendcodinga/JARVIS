@@ -150,6 +150,30 @@ fn medium_runs_unasked_only_when_policy_allows_and_nothing_is_tainted() {
 }
 
 #[test]
+fn a_turn_started_by_voice_never_gets_the_routine_actions_shortcut() {
+    // D-27: the person allowed medium actions to run unasked, but speech can come from a TV or
+    // another person, so a heard request still gets the card. A typed one does not.
+    let g = rig();
+    g.gw.set_auto_allow_medium(true);
+    g.gw.mark_voice_turn("req-1");
+    let r = ask(g
+        .gw
+        .evaluate(proposal("files.move", ToolRisk::Medium, json!({}))));
+    assert_eq!(r.risk, Risk::Medium);
+    // Another request (typed) is unaffected, and low-risk tools still run on a voice turn.
+    let mut typed = proposal("files.move", ToolRisk::Medium, json!({}));
+    typed.request_id = "req-2".into();
+    assert!(matches!(g.gw.evaluate(typed), Verdict::Run(_)));
+    assert!(matches!(
+        g.gw.evaluate(proposal("time.now", ToolRisk::Low, json!({}))),
+        Verdict::Run(_)
+    ));
+    // When the request ends the mark is gone, so the set cannot grow without bound.
+    g.gw.end_turn("req-1");
+    assert!(g.gw.voice().is_empty());
+}
+
+#[test]
 fn injection_a_file_that_asks_for_a_move_never_auto_runs() {
     // The user allowed medium actions to run unasked. The model reads a file (that read is
     // allowed), the content enters the context and taints it, and the file's text makes the

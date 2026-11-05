@@ -11,6 +11,7 @@ mod services;
 mod spotify;
 mod tools;
 mod voice;
+mod wake;
 
 use config::SettingsStore;
 use intelligence::pricing::PriceTable;
@@ -142,12 +143,37 @@ pub fn run() {
                     tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
                 }
             });
+            // Voice (M3 step 4): push to talk with Moonshine (D-26). The model files are downloaded
+            // and verified by the model manager into `<app data>/models`; the speech engine reads
+            // them when something is first said, so a finished download needs no restart.
+            let voice_stream = Arc::new(ipc::voice_stream::VoiceStream::default());
+            let models = Arc::new(voice::models::ModelManager::new(
+                app.path().app_data_dir()?.join("models"),
+            ));
+            let stt_dir = models
+                .dir_of("stt-moonshine-base-en-int8")
+                .ok_or("the speech model is not in the manifest")?;
+            let for_device = svc.clone();
+            let voice = voice::controller::VoiceController::new(
+                orch.clone(),
+                runner.clone(),
+                Arc::new(ipc::commands::AppVoiceSink {
+                    app: app.handle().clone(),
+                    stream: voice_stream.clone(),
+                }),
+                Box::new(|| Box::new(audio::cpal_backend::CpalBackend)),
+                Box::new(move || for_device.settings.get().voice.input_device),
+                Box::new(voice::sherpa::SherpaTranscriber::new(stt_dir)),
+                voice::controller::VoiceConfig::default(),
+            );
             app.manage(store);
             app.manage(activity);
             app.manage(orch);
             app.manage(runner);
             app.manage(svc);
-            app.manage(Arc::new(ipc::voice_stream::VoiceStream::default()));
+            app.manage(voice_stream);
+            app.manage(voice);
+            app.manage(models);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -9,7 +9,7 @@ use crate::ipc::types::{
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -127,6 +127,10 @@ pub struct Gateway {
     log: Arc<ActivityLog>,
     tainted: AtomicBool,
     auto_allow_medium: AtomicBool,
+    /// Requests that were started from the microphone (decision D-27). Speech can come from a TV,
+    /// a call or someone else in the room, so a heard command is never authenticated enough to run
+    /// a Medium action without the card, whatever the routine-actions setting says.
+    voice_turns: Mutex<HashSet<String>>,
     pending: Mutex<HashMap<String, Pending>>,
 }
 
@@ -196,8 +200,27 @@ impl Gateway {
             log,
             tainted: AtomicBool::new(false),
             auto_allow_medium: AtomicBool::new(false),
+            voice_turns: Mutex::new(HashSet::new()),
             pending: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn voice(&self) -> MutexGuard<'_, HashSet<String>> {
+        self.voice_turns.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Marks a request as started from the microphone. Call before its tools can run.
+    pub fn mark_voice_turn(&self, request_id: &str) {
+        self.voice().insert(request_id.to_owned());
+    }
+
+    /// The request is over: forget the mark, so the set never grows.
+    pub fn end_turn(&self, request_id: &str) {
+        self.voice().remove(request_id);
+    }
+
+    fn is_voice_turn(&self, request_id: &str) -> bool {
+        self.voice().contains(request_id)
     }
 
     fn pending(&self) -> MutexGuard<'_, HashMap<String, Pending>> {
@@ -318,7 +341,11 @@ impl Gateway {
 
         let ask = match risk {
             ToolRisk::Low => false,
-            ToolRisk::Medium => tainted || !self.auto_allow_medium.load(Ordering::SeqCst),
+            ToolRisk::Medium => {
+                tainted
+                    || self.is_voice_turn(&p.request_id)
+                    || !self.auto_allow_medium.load(Ordering::SeqCst)
+            }
             ToolRisk::High => true,
         };
         if !ask {

@@ -25,7 +25,7 @@ orchestrator keeps the only one, voice feeds it events.
 
 | ID | Question | Lean |
 | --- | --- | --- |
-| D-02 | Wake word engine | openWakeWord "hey jarvis", personal use only (D-23); phrase is "hey jarvis" only; threshold about 0.7 with two scores in a row; hotkey always available. Needs kibong2's Mac numbers. |
+| D-02 | Wake word engine | **Decided, D-29 (owner, 2026-11-05):** openWakeWord "hey jarvis", personal use only (D-23), through ONNX Runtime (`ort`); threshold about 0.7 with two scores in a row; no global hotkey, push to talk is a single press in the window. Developer B's Mac numbers still go into the S1 report. |
 | D-04 | STT model | Moonshine base unless the S1 table says otherwise; record the final pick with the WER numbers. |
 | D-03 | TTS | Kokoro v1.0 English voices (the owner picked sids 24 and 26 earlier), lexicon only, no espeak-ng. Confirm the list of voices that pass the audition. |
 | D-05 | Echo | Alpha has no AEC. Four interrupt paths from §6.6; headphones recommended. `sonora` stays a post-alpha experiment. |

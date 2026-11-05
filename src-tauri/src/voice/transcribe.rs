@@ -1,5 +1,5 @@
-//! Speech to text. The real model (Moonshine through sherpa-onnx, D-04) arrives with its own
-//! dependency decision; until then the app has [`MissingModels`], which says so plainly.
+//! Speech to text. The real model is Moonshine through sherpa-onnx (`sherpa.rs`, D-04, D-26); this
+//! file holds the trait it implements and the errors the pipeline understands.
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum VoiceError {
@@ -17,7 +17,8 @@ pub trait Transcriber: Send + 'static {
     fn transcribe(&mut self, audio: &[f32]) -> Result<String, VoiceError>;
 }
 
-/// What the app uses until the models are installed: every request says so.
+/// A stand-in that says the models are missing, for tests of the pipeline without a model.
+#[cfg_attr(not(test), allow(dead_code))]
 pub struct MissingModels;
 
 impl Transcriber for MissingModels {

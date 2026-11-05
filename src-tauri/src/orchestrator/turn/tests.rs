@@ -610,6 +610,7 @@ struct Tooled {
     spend: Arc<SpendMeter>,
     /// What `memory.propose` and "remember that" put in.
     inbox: Arc<crate::tools::ports::MemoryProposals>,
+    orch: Arc<Orchestrator>,
 }
 
 fn tooled(
@@ -659,7 +660,7 @@ fn tooled_media(
     let roots = vec![crate::config::display_path(&root)];
     let inbox = Arc::new(crate::tools::ports::MemoryProposals::new(100));
     let in_ctx = inbox.clone();
-    let (r, _, spend) = runner(has_key.then(|| fake.clone()), caps);
+    let (r, orch, spend) = runner(has_key.then(|| fake.clone()), caps);
     let r = Arc::new(Arc::into_inner(r).unwrap().with_tools(ToolWiring {
         gateway: gateway.clone(),
         registry: Arc::new(Registry::alpha()),
@@ -684,6 +685,7 @@ fn tooled_media(
             skew,
             spend,
             inbox,
+            orch,
         },
         fake,
     )
@@ -1778,4 +1780,42 @@ async fn empty_text_and_a_stale_request_are_refused_and_change_nothing() {
         orch.snapshot().active_request_id.as_deref(),
         Some(id.as_str())
     );
+}
+
+#[tokio::test]
+async fn a_spoken_request_still_gets_the_card_when_routine_actions_run_unasked_for_typed_ones() {
+    // D-27. Same setting (medium actions allowed unasked), same request: typed runs, spoken asks.
+    let (t, _) = tooled(rename_script, true);
+    std::fs::write(t.root.join("a.txt"), "x").unwrap();
+    t.r.start("rename a to b".into(), t.sink.clone()).unwrap();
+    t.sink.wait_done().await;
+    assert!(
+        t.root.join("b.txt").exists(),
+        "the typed request ran unasked"
+    );
+
+    let (t, _) = tooled(rename_script, true);
+    std::fs::write(t.root.join("a.txt"), "x").unwrap();
+    let id = voice_turn_at_transcribing(&t.orch);
+    t.r.continue_voice(&id, "rename a to b".into(), t.sink.clone())
+        .unwrap();
+    let req = wait_approval(&t.sink).await;
+    assert!(
+        t.root.join("a.txt").exists(),
+        "nothing ran while the card is open"
+    );
+    assert!(lock(&t.sink.activity).is_empty());
+    // Denied, so nothing moves; the mark is gone when the turn ends.
+    t.r.resolve_approval(
+        ApprovalDecision {
+            approval_id: req.approval_id,
+            args_digest: req.args_digest,
+            decision: Decision::Deny,
+        },
+        Channel::Window,
+        t.sink.as_ref(),
+    )
+    .unwrap();
+    t.sink.wait_done().await;
+    assert!(t.root.join("a.txt").exists() && !t.root.join("b.txt").exists());
 }

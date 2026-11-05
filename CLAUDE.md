@@ -44,7 +44,7 @@ The full specification is `docs/spec.md`; decisions are in `docs/decisions.md` a
 ## Dependencies
 - Do not add a dependency without a one-line reason in the PR and a licence check against the allow-list in `docs/decisions.md` (D-01).
 - No GPL or non-commercial components unless D-01 allows them (watch espeak-ng, Piper, openWakeWord pretrained models).
-- Speech engine is the official `sherpa-onnx` crate; do not add whisper.cpp, Piper or another runtime alongside it.
+- Speech engine is the official `sherpa-onnx` crate; do not add whisper.cpp, Piper or another runtime alongside it. The one exception is ONNX Runtime (the `ort` crate, loaded at run time) for the openWakeWord wake word only (D-29).
 
 ## Cloud sessions
 - If `$CLAUDE_CODE_REMOTE` is `true`, you are on an Ubuntu x86-64 VM with no display, microphone, speaker, macOS or Windows.

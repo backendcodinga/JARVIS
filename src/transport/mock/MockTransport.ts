@@ -20,6 +20,9 @@ import type { Snapshot } from "../../types/generated/Snapshot";
 import type { SpotifyStatus } from "../../types/generated/SpotifyStatus";
 import type { StopReason } from "../../types/generated/StopReason";
 import type { InterruptReason } from "../../types/generated/InterruptReason";
+import type { ModelProgress } from "../../types/generated/ModelProgress";
+import type { VoiceStatus } from "../../types/generated/VoiceStatus";
+import type { Transcript } from "../../types/generated/Transcript";
 import type { TurnInterrupted } from "../../types/generated/TurnInterrupted";
 import type { UsageSummary } from "../../types/generated/UsageSummary";
 import type {
@@ -36,6 +39,10 @@ import { MOCK_SCRIPTS, type MockScript, type SnapshotPatch } from "./scripts";
 
 const APPROVAL_TTL_MS = 60_000;
 const FIRST_TOKEN_MS = 400;
+/** How long the mock microphone takes to open, as a real device can. */
+const MOCK_MIC_OPEN_MS = 400;
+/** The mock "hears a quiet gap" this long after the microphone opens and ends the capture itself. */
+const MOCK_END_OF_SPEECH_MS = 3000;
 const TOKEN_MS = 60;
 /** What one mock reply "costs", so the usage panel and caps can be exercised. */
 const MOCK_TURN_COST_MICRO_USD = 1_500;
@@ -98,6 +105,12 @@ export class MockTransport implements Transport {
   private timers: ReturnType<typeof setTimeout>[] = [];
   private turn: { requestId: string; onEvent: TurnListener } | null = null;
   private turnCount = 0;
+  private voiceListener: TurnListener | null = null;
+  private modelsReady = false;
+  private installing = false;
+  private progressListeners = new Set<(p: ModelProgress) => void>();
+  private transcriptListeners = new Set<(t: Transcript) => void>();
+  private micBeforeCapture: Snapshot["mic"] = "off";
   private nextFault: MockFault | null = null;
   private usageListeners = new Set<UsageListener>();
   /** Approval ids already decided: a decision is single-use. */
@@ -264,6 +277,111 @@ export class MockTransport implements Transport {
       ),
     );
     return requestId;
+  }
+
+  private voiceStatusNow(): VoiceStatus {
+    return {
+      wakeEnabled: false,
+      followUpWindow: true,
+      voice: "",
+      availableVoices: [],
+      inputDevice: null,
+      micPermission: "unknown",
+      modelsReady: this.modelsReady,
+    };
+  }
+
+  async voiceStatus(): Promise<VoiceStatus> {
+    return this.voiceStatusNow();
+  }
+
+  /** Nothing is downloaded: a short, labelled run that ends with the models "ready". */
+  async voiceModelsInstall(): Promise<VoiceStatus> {
+    if (this.installing) {
+      throw jarvisError(
+        "INTERNAL",
+        "The speech models are already being downloaded.",
+      );
+    }
+    this.installing = true;
+    const total = 250_807_309;
+    const steps = 5;
+    try {
+      for (let i = 1; i <= steps; i++) {
+        await new Promise<void>((r) => this.timers.push(setTimeout(r, 200)));
+        const p = {
+          name: "Speech recognition (MOCK: nothing is downloaded)",
+          doneBytes: Math.floor((total * i) / steps),
+          totalBytes: total,
+        };
+        for (const l of this.progressListeners) l(p);
+      }
+      this.modelsReady = true;
+      return this.voiceStatusNow();
+    } finally {
+      this.installing = false;
+    }
+  }
+
+  onModelsProgress(listener: (p: ModelProgress) => void): () => void {
+    this.progressListeners.add(listener);
+    return () => this.progressListeners.delete(listener);
+  }
+
+  async voiceAttach(onEvent: TurnListener): Promise<void> {
+    this.voiceListener = onEvent;
+  }
+
+  async voiceCaptureStart(): Promise<void> {
+    if (!this.voiceListener) {
+      throw {
+        code: "INTERNAL",
+        message: "Voice input is not ready yet.",
+        retryable: true,
+        requestId: null,
+      } satisfies JarvisError;
+    }
+    if (this.snapshot.phase === "listening") return;
+    if (this.snapshot.activeRequestId || this.snapshot.mic === "muted") {
+      throw {
+        code: "INTERNAL",
+        message: "JARVIS is busy with another request.",
+        retryable: true,
+        requestId: null,
+      } satisfies JarvisError;
+    }
+    this.micBeforeCapture = this.snapshot.mic;
+    // As the backend does: listening at once, `capturing` only once the device has opened.
+    this.apply({ phase: "listening", lastError: null });
+    this.timers.push(
+      setTimeout(() => {
+        if (this.snapshot.phase === "listening") {
+          this.apply({ mic: "capturing" });
+        }
+      }, MOCK_MIC_OPEN_MS),
+    );
+    // Like the backend's end-of-speech detector: a capture nobody stops ends by itself.
+    this.timers.push(
+      setTimeout(
+        () => void this.voiceCaptureStop(),
+        MOCK_MIC_OPEN_MS + MOCK_END_OF_SPEECH_MS,
+      ),
+    );
+  }
+
+  /** Nothing is heard in the mock: key up plays a fixed, labelled sentence as the transcript. */
+  async voiceCaptureStop(): Promise<void> {
+    const listener = this.voiceListener;
+    if (!listener || this.snapshot.phase !== "listening") return;
+    this.apply({ phase: "transcribing", mic: this.micBeforeCapture });
+    const text = "(MOCK: nothing was heard) what time is it";
+    const requestId = await this.submitText(text, listener);
+    for (const l of this.transcriptListeners) l({ requestId, text });
+  }
+
+  onTranscriptFinal(listener: (t: Transcript) => void): () => void {
+    this.transcriptListeners.add(listener);
+    return () => this.transcriptListeners.delete(listener);
   }
 
   async cancel(requestId: string): Promise<void> {

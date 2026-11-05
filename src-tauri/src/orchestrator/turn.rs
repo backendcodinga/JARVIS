@@ -301,11 +301,18 @@ impl TurnRunner {
         sink.snapshot(snap);
         let token = CancellationToken::new();
         lock(&self.tokens).insert(id.to_owned(), token.clone());
+        // D-27: a heard request never gets the "routine actions run unasked" shortcut.
+        if let Some(w) = self.tools.as_ref() {
+            w.gateway.mark_voice_turn(id);
+        }
         let me = Arc::clone(self);
         let rid = id.to_owned();
         tokio::spawn(async move {
             me.run(&rid, text, token, sink.as_ref()).await;
             lock(&me.tokens).remove(&rid);
+            if let Some(w) = me.tools.as_ref() {
+                w.gateway.end_turn(&rid);
+            }
         });
         Ok(())
     }

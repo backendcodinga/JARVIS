@@ -3,6 +3,9 @@
 pub mod apps;
 pub mod browser;
 pub mod dialog;
+// Opens the wake word's ONNX Runtime library the safe way on Windows (wake/oww.rs, D-29).
+#[allow(dead_code)]
+pub mod dll;
 // Used by tools::files once the move/rename tools switch to it (#22 review).
 #[allow(dead_code)]
 pub mod fs;

@@ -32,8 +32,6 @@ impl VoiceStream {
         self.attach(Arc::new(move |e| channel.send(e).is_ok()));
     }
 
-    // The voice controller uses the rest from M3 step 4c; until then only `attach` is called.
-    #[allow(dead_code)]
     pub fn is_attached(&self) -> bool {
         self.slot().is_some()
     }
@@ -46,7 +44,6 @@ impl VoiceStream {
     /// Sends an event to the window. Returns `false` when nothing is attached or the receiver has
     /// gone away (in which case it is detached). The send happens outside the lock, so a slow
     /// window cannot block an attach.
-    #[allow(dead_code)]
     pub fn send(&self, event: TurnStreamEvent) -> bool {
         let Some(sender) = self.slot().clone() else {
             return false;
